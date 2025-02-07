@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+
+export $(cat .env.default | grep -v ^# | xargs);
+
+echo Running migrations:
+./bin/db
+
+echo Running format:
+go fmt
+
+echo Running tests:
+APP_DIR=$(pwd) go test ./...

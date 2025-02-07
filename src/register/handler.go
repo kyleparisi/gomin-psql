@@ -1,12 +1,17 @@
 package register
 
 import (
+	. "github.com/go-jet/jet/v2/postgres"
+	"github.com/go-jet/jet/v2/qrm"
+	. "gomin/.gen/tron_local/public/table"
+	"path/filepath"
+
 	"database/sql"
 	"encoding/json"
 	"github.com/gorilla/sessions"
 	"github.com/ucarion/urlpath"
 	"golang.org/x/crypto/bcrypt"
-	"gomin/src/app"
+	"gomin/.gen/tron_local/public/model"
 	"gomin/src/framework"
 	"html/template"
 	"io"
@@ -30,7 +35,7 @@ type RegisterError struct {
 	} `json:"errors"`
 }
 
-func GetHandler(db *sql.DB, session *sessions.Session) func(_ urlpath.Match) framework.Response {
+func GetHandler(db *sql.Tx, session *sessions.Session) func(_ urlpath.Match) framework.Response {
 	return func(_ urlpath.Match) framework.Response {
 		t, err := template.ParseFiles(os.Getenv("APP_DIR") + "/views/register.gohtml")
 		if err != nil {
@@ -40,10 +45,15 @@ func GetHandler(db *sql.DB, session *sessions.Session) func(_ urlpath.Match) fra
 	}
 }
 
-func PostHandler(db *sql.DB, session *sessions.Session) func(_ urlpath.Match, body io.Reader) framework.Response {
+func PostHandler(db *sql.Tx, session *sessions.Session) func(_ urlpath.Match, body io.Reader) framework.Response {
 	return func(_ urlpath.Match, body io.Reader) framework.Response {
+		cwd, err := os.Getwd()
+		if err != nil {
+			panic(err)
+		}
+		newPath := filepath.Join(cwd, "..", "..")
 		register := Register{}
-		t, err := template.ParseFiles(os.Getenv("APP_DIR") + "/views/register.gohtml")
+		t, err := template.ParseFiles(newPath + "/views/register.gohtml")
 		if err != nil {
 			panic(err)
 		}
@@ -80,11 +90,13 @@ func PostHandler(db *sql.DB, session *sessions.Session) func(_ urlpath.Match, bo
 			log.Printf("RegisterHandler: %+v", registerError)
 			return framework.Response{StatusCode: 400, Data: registerError, Template: t}
 		}
+		var appUser model.AppUser
+		stmt := SELECT(AppUser.AllColumns).FROM(AppUser).WHERE(AppUser.Email.EQ(Text(register.Email)))
+		err = stmt.Query(db, &appUser)
 		// Check for existing user
-		var appUser app.AppUser
-		err = db.QueryRow("SELECT id, name, email, password FROM app_user where email = $1", strings.ToLower(register.Email)).Scan(&appUser.Id, &appUser.Name, &appUser.Email, &appUser.Password)
+		//err = db.QueryRow("SELECT id, name, email, password FROM app_user where email = $1", strings.ToLower(register.Email)).Scan(&appUser.ID, &appUser.Name, &appUser.Email, &appUser.Password)
 		switch {
-		case err == sql.ErrNoRows:
+		case err == qrm.ErrNoRows:
 			log.Printf("RegisterHandler: no user with email: %s\n", register.Email)
 		case err != nil:
 			panic(err)
@@ -113,11 +125,11 @@ func PostHandler(db *sql.DB, session *sessions.Session) func(_ urlpath.Match, bo
 			return framework.Response{StatusCode: 500}
 		}
 		log.Printf("RegisterHandler: new user registered: %s\n", register.Email)
-		err = db.QueryRow("SELECT id, name, email from app_user where id = $1", lastId).Scan(&appUser.Id, &appUser.Name, &appUser.Email)
+		err = db.QueryRow("SELECT id, name, email from app_user where id = $1", lastId).Scan(&appUser.ID, &appUser.Name, &appUser.Email)
 		if err != nil {
 			panic(err)
 		}
-		session.Values["Id"] = appUser.Id
+		session.Values["Id"] = appUser.ID
 		session.Values["Name"] = appUser.Name
 		session.Values["Email"] = appUser.Email
 

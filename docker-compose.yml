@@ -1,0 +1,22 @@
+---
+services:
+  db:
+    image: postgres:12
+    ports:
+      - 5432:5432
+    env_file: .env.default
+    logging:
+      driver: none
+    networks:
+      - default
+
+  app:
+    image: golang:1.22
+    ports:
+      - 8080:8080
+    env_file: .env.default
+    working_dir: /opt/app
+    volumes:
+      - .:/opt/app
+    networks:
+      - default

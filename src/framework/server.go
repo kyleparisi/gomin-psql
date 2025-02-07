@@ -29,8 +29,8 @@ type Response struct {
 	Redirect   interface{}
 	Session    *sessions.Session
 }
-type Handler func(*sql.DB, *sessions.Session) func(urlpath.Match) Response
-type PostHandler func(*sql.DB, *sessions.Session) func(urlpath.Match, io.Reader) Response
+type Handler func(*sql.Tx, *sessions.Session) func(urlpath.Match) Response
+type PostHandler func(*sql.Tx, *sessions.Session) func(urlpath.Match, io.Reader) Response
 
 func NewRouter() *Router {
 	router := new(Router)
@@ -40,7 +40,23 @@ func NewRouter() *Router {
 }
 
 func NewDatabaseConnection() *sql.DB {
-	db, err := sql.Open("postgres", fmt.Sprintf("user=%s password=%s database=%s sslmode=disable", os.Getenv("DB_USERNAME"), os.Getenv("DB_PASSWORD"), os.Getenv("DB_DATABASE")))
+	dsn := fmt.Sprintf("sslmode=disable ")
+	username := os.Getenv("DB_USERNAME")
+	if username == "" {
+		username = "app"
+	}
+	dsn += "user=" + username + " "
+	password := os.Getenv("DB_PASSWORD")
+	if password == "" {
+		password = "secret"
+	}
+	dsn += "password=" + password + " "
+	database := os.Getenv("DB_DATABASE")
+	if database == "" {
+		database = "app_test"
+	}
+	dsn += "database=" + database + " "
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -48,7 +64,22 @@ func NewDatabaseConnection() *sql.DB {
 }
 
 func NewSessionStore() *pgstore.PGStore {
-	dsn := fmt.Sprintf("user=%s password=%s database=%s sslmode=disable", os.Getenv("DB_USERNAME"), os.Getenv("DB_PASSWORD"), os.Getenv("DB_DATABASE"))
+	dsn := fmt.Sprintf("sslmode=disable ")
+	username := os.Getenv("DB_USERNAME")
+	if username == "" {
+		username = "tron_local"
+	}
+	dsn += "user=" + username + " "
+	password := os.Getenv("DB_PASSWORD")
+	if password == "" {
+		password = "secret"
+	}
+	dsn += "password=" + password + " "
+	database := os.Getenv("DB_DATABASE")
+	if database == "" {
+		database = "tron_local"
+	}
+	dsn += "database=" + database + " "
 	store, err := pgstore.NewPGStore(dsn, []byte(os.Getenv("APP_SECRET_KEY")))
 	if err != nil {
 		panic(err.Error())
@@ -72,6 +103,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer store.StopCleanup(store.Cleanup(time.Minute * 5))
 	defer store.Close()
 
+	tx, err := db.Begin()
+	if err != nil {
+		panic(err)
+	}
+
 	session, _ := store.Get(req, "user")
 
 	if req.Method == "GET" {
@@ -82,7 +118,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				if !ok {
 					break
 				}
-				response := handler(db, session)(match)
+				response := handler(tx, session)(match)
 				// check for redirect first
 				if redirect, ok := response.Redirect.(Redirect); ok {
 					http.Redirect(w, req, redirect.location, redirect.code)
@@ -102,7 +138,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				if !ok {
 					break
 				}
-				response := post(db, session)(match, req.Body)
+				response := post(tx, session)(match, req.Body)
 				if response.Session != nil {
 					err := response.Session.Save(req, w)
 					if err != nil {

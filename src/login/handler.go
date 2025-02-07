@@ -4,17 +4,19 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	. "github.com/go-jet/jet/v2/postgres"
 	"github.com/gorilla/sessions"
 	"github.com/ucarion/urlpath"
 	"golang.org/x/crypto/bcrypt"
-	"gomin/src/app"
+	"gomin/.gen/tron_local/public/model"
+	. "gomin/.gen/tron_local/public/table"
 	"gomin/src/framework"
 	"html/template"
 	"io"
 	"log"
 	"net/mail"
 	"os"
-	"strings"
+	"path/filepath"
 )
 
 type Login struct {
@@ -30,7 +32,7 @@ type LoginError struct {
 	} `json:"errors"`
 }
 
-func GetHandler(db *sql.DB, session *sessions.Session) func(_ urlpath.Match) framework.Response {
+func GetHandler(db *sql.Tx, session *sessions.Session) func(_ urlpath.Match) framework.Response {
 	return func(_ urlpath.Match) framework.Response {
 		t, err := template.ParseFiles(os.Getenv("APP_DIR") + "/views/login.gohtml")
 		if err != nil {
@@ -40,10 +42,15 @@ func GetHandler(db *sql.DB, session *sessions.Session) func(_ urlpath.Match) fra
 	}
 }
 
-func PostHandler(db *sql.DB, session *sessions.Session) func(_ urlpath.Match, body io.Reader) framework.Response {
+func PostHandler(db *sql.Tx, session *sessions.Session) func(_ urlpath.Match, body io.Reader) framework.Response {
 	return func(_ urlpath.Match, body io.Reader) framework.Response {
+		cwd, err := os.Getwd()
+		if err != nil {
+			panic(err)
+		}
+		newPath := filepath.Join(cwd, "..", "..")
 		login := Login{}
-		t, err := template.ParseFiles(os.Getenv("APP_DIR") + "/views/login.gohtml")
+		t, err := template.ParseFiles(newPath + "/views/login.gohtml")
 		if err != nil {
 			panic(err)
 		}
@@ -81,8 +88,9 @@ func PostHandler(db *sql.DB, session *sessions.Session) func(_ urlpath.Match, bo
 			return framework.Response{StatusCode: 400, Data: loginError, Template: t}
 		}
 		// Check for existing users
-		var appUser app.AppUser
-		err = db.QueryRow("SELECT id, name, email, password FROM app_user where email = $1", strings.ToLower(login.Email)).Scan(&appUser.Id, &appUser.Name, &appUser.Email, &appUser.Password)
+		var appUser model.AppUser
+		stmt := SELECT(AppUser.AllColumns).FROM(AppUser).WHERE(AppUser.Email.EQ(String(login.Email)))
+		err = stmt.Query(db, &appUser)
 		if err != nil {
 			panic(err.Error())
 		}

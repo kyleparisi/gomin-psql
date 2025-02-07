@@ -1,0 +1,8 @@
+#!/bin/bash
+
+set -e
+
+export $(cat .env.default | grep -v ^# | xargs);
+./schema/manage.py makemigrations
+./schema/manage.py migrate
+jet -dsn="postgres://$DB_USERNAME:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_DATABASE?sslmode=disable" -path=./.gen
